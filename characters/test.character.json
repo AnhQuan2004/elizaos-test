@@ -4,7 +4,7 @@
     "modelProvider": "openai",
     "settings": {
         "secrets": {
-            "SUI_PRIVATE_KEY": "suiprivkey1qqdamvpp3penq44svc9eu33lcl7m4q65tlrwgzf4vh458fyf2nw5zsdease",
+            "SUI_PRIVATE_KEY": "",
             "SUI_NETWORK": "mainnet"
         },
         "voice": {
