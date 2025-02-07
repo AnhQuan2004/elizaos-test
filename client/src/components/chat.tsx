@@ -12,7 +12,7 @@ import { useEffect, useRef, useState } from "react";
 import type { Content, UUID } from "@elizaos/core";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiClient } from "@/lib/api";
-import { cn, moment } from "@/lib/utils";
+import {  moment } from "@/lib/utils";
 import { Avatar, AvatarImage } from "./ui/avatar";
 import CopyButton from "./copy-button";
 import ChatTtsButton from "./ui/chat/chat-tts-button";
@@ -28,12 +28,42 @@ type ExtraContentFields = {
     user: string;
     createdAt: number;
     isLoading?: boolean;
+    action?: string;
+    params?: Record<string, unknown>;
 };
 
-type ContentWithUser = Content & ExtraContentFields;
+type ContentWithUser = Content & ExtraContentFields & {
+    content?: {
+        from_token?: string;
+        destination_token?: string;
+        amount?: string | number;
+        error?: string;
+        provider?: {
+            name: string;
+            text: string;
+            force?: boolean;
+        }
+    };
+    action?: string;
+    user: string;
+    text?: string;
+    attachments?: IAttachment[];
+    source?: string;
+    createdAt?: number;
+    isLoading?: boolean;
+    params?: Record<string, unknown>;
+};
 
 type AnimatedDivProps = AnimatedProps<{ style: React.CSSProperties }> & {
     children?: React.ReactNode;
+};
+
+type SwapParams = {
+    from_token: string;
+    destination_token: string;
+    amount: string | number;
+    tx?: string;
+    error?: string;
 };
 
 export default function Page({ agentId }: { agentId: UUID }) {
@@ -52,7 +82,7 @@ export default function Page({ agentId }: { agentId: UUID }) {
     const { scrollRef, isAtBottom, scrollToBottom, disableAutoScroll } = useAutoScroll({
         smooth: true,
     });
-   
+
     useEffect(() => {
         scrollToBottom();
     }, [queryClient.getQueryData(["messages", agentId])]);
@@ -75,12 +105,12 @@ export default function Page({ agentId }: { agentId: UUID }) {
 
         const attachments: IAttachment[] | undefined = selectedFile
             ? [
-                  {
-                      url: URL.createObjectURL(selectedFile),
-                      contentType: selectedFile.type,
-                      title: selectedFile.name,
-                  },
-              ]
+                {
+                    url: URL.createObjectURL(selectedFile),
+                    contentType: selectedFile.type,
+                    title: selectedFile.name,
+                },
+            ]
             : undefined;
 
         const newMessages = [
@@ -119,28 +149,94 @@ export default function Page({ agentId }: { agentId: UUID }) {
         }
     }, []);
 
+    const messages =
+        queryClient.getQueryData<ContentWithUser[]>(["messages", agentId]) ||
+        [];
+
+    const transitions = useTransition(messages, {
+        keys: (message) =>
+            `${message.createdAt}-${message.user}-${message.text}`,
+        from: { opacity: 0, transform: "translateY(50px)" },
+        enter: { opacity: 1, transform: "translateY(0px)" },
+        leave: { opacity: 0, transform: "translateY(10px)" },
+    });
+
+    const CustomAnimatedDiv = animated.div as React.FC<AnimatedDivProps>;
+
+    useEffect(() => {
+        // Log all messages when they change
+        messages.forEach(msg => {
+            console.log('🔄 Message:', {
+                id: `${msg.createdAt}-${msg.user}`,
+                text: msg.text,
+                user: msg.user,
+                action: msg.action,
+                content: msg.content,
+                provider: msg.content?.provider,
+                source: msg.source
+            });
+
+            if (msg.action === 'SWAP_TOKEN') {
+                const params = msg.params as SwapParams;
+                const swapDetails = {
+                    text: msg.text,
+                    action: msg.action,
+                    content: msg.content || {
+                        from_token: params?.from_token,
+                        destination_token: params?.destination_token,
+                        amount: params?.amount
+                    },
+                    params: msg.params,
+                    user: msg.user,
+                    raw: msg
+                };
+                console.log("[CHAT] SWAP Message:", swapDetails);
+            }
+            
+            // Log provider responses specifically
+            if (msg.content?.provider) {
+                console.log('📢 Provider Response:', {
+                    name: msg.content.provider.name,
+                    text: msg.content.provider.text,
+                    force: msg.content.provider.force
+                });
+            }
+        });
+    }, [messages]);
+
     const sendMessageMutation = useMutation({
         mutationKey: ["send_message", agentId],
-        mutationFn: ({
+        mutationFn: async ({
             message,
             selectedFile,
         }: {
             message: string;
             selectedFile?: File | null;
-        }) => apiClient.sendMessage(agentId, message, selectedFile),
+        }) => {
+            console.log('📤 Sending message:', message);
+            const response = await apiClient.sendMessage(agentId, message, selectedFile);
+            console.log('📥 Received response:', response);
+            return response;
+        },
         onSuccess: (newMessages: ContentWithUser[]) => {
+            console.log('✅ Message sent successfully:', newMessages);
             queryClient.setQueryData(
                 ["messages", agentId],
-                (old: ContentWithUser[] = []) => [
-                    ...old.filter((msg) => !msg.isLoading),
-                    ...newMessages.map((msg) => ({
-                        ...msg,
-                        createdAt: Date.now(),
-                    })),
-                ]
+                (old: ContentWithUser[] = []) => {
+                    const updated = [
+                        ...old.filter((msg) => !msg.isLoading),
+                        ...newMessages.map((msg) => ({
+                            ...msg,
+                            createdAt: Date.now(),
+                        })),
+                    ];
+                    console.log('🔄 Updated messages:', updated);
+                    return updated;
+                }
             );
         },
         onError: (e) => {
+            console.error('❌ Error sending message:', e);
             toast({
                 variant: "destructive",
                 title: "Unable to send message",
@@ -156,20 +252,6 @@ export default function Page({ agentId }: { agentId: UUID }) {
         }
     };
 
-    const messages =
-        queryClient.getQueryData<ContentWithUser[]>(["messages", agentId]) ||
-        [];
-
-    const transitions = useTransition(messages, {
-        keys: (message) =>
-            `${message.createdAt}-${message.user}-${message.text}`,
-        from: { opacity: 0, transform: "translateY(50px)" },
-        enter: { opacity: 1, transform: "translateY(0px)" },
-        leave: { opacity: 0, transform: "translateY(10px)" },
-    });
-
-    const CustomAnimatedDiv = animated.div as React.FC<AnimatedDivProps>;
-
     return (
         <div className="flex flex-col w-full h-[calc(100dvh)] p-4">
             <div className="flex-1 overflow-y-auto">
@@ -180,6 +262,12 @@ export default function Page({ agentId }: { agentId: UUID }) {
                     disableAutoScroll={disableAutoScroll}
                 >
                     {transitions((style, message: ContentWithUser) => {
+                        console.log('🎨 Rendering message:', {
+                            id: `${message.createdAt}-${message.user}`,
+                            variant: getMessageVariant(message?.user),
+                            provider: message.content?.provider
+                        });
+
                         const variant = getMessageVariant(message?.user);
                         return (
                             <CustomAnimatedDiv
@@ -191,88 +279,73 @@ export default function Page({ agentId }: { agentId: UUID }) {
                                     padding: "1rem",
                                 }}
                             >
-                                <ChatBubble
-                                    variant={variant}
-                                    className="flex flex-row items-center gap-2"
-                                >
-                                    {message?.user !== "user" ? (
-                                        <Avatar className="size-8 p-1 border rounded-full select-none">
-                                            <AvatarImage src="/elizaos-icon.png" />
-                                        </Avatar>
-                                    ) : null}
-                                    <div className="flex flex-col">
-                                        <ChatBubbleMessage
-                                            isLoading={message?.isLoading}
-                                        >
-                                            {message?.user !== "user" ? (
-                                                <AIWriter>
-                                                    {message?.text}
-                                                </AIWriter>
-                                            ) : (
-                                                message?.text
-                                            )}
-                                            {/* Attachments */}
-                                            <div>
-                                                {message?.attachments?.map(
-                                                    (attachment: IAttachment) => (
-                                                        <div
-                                                            className="flex flex-col gap-1 mt-2"
-                                                            key={`${attachment.url}-${attachment.title}`}
-                                                        >
-                                                            <img
-                                                                alt="attachment"
-                                                                src={attachment.url}
-                                                                width="100%"
-                                                                height="100%"
-                                                                className="w-64 rounded-md"
-                                                            />
-                                                            <div className="flex items-center justify-between gap-4">
-                                                                <span />
-                                                                <span />
+                                <ChatBubble variant={variant}>
+                                    <div className="flex flex-row items-start gap-2">
+                                        {message?.user !== "user" && (
+                                            <Avatar className="size-8 p-1 border rounded-full select-none">
+                                                <AvatarImage src="/elizaos-icon.png" />
+                                            </Avatar>
+                                        )}
+                                        <div className="flex flex-col">
+                                            <ChatBubbleMessage isLoading={message?.isLoading}>
+                                                {message?.user !== "user" ? (
+                                                    <>
+                                                        {message?.content?.provider?.force ? (
+                                                            <div className="provider-response">
+                                                                {message?.content?.provider?.text}
                                                             </div>
-                                                        </div>
-                                                    )
+                                                        ) : (
+                                                            <AIWriter>{message?.text}</AIWriter>
+                                                        )}
+                                                    </>
+                                                ) : (
+                                                    message?.text
                                                 )}
-                                            </div>
-                                        </ChatBubbleMessage>
-                                        <div className="flex items-center gap-4 justify-between w-full mt-1">
-                                            {message?.text &&
-                                            !message?.isLoading ? (
-                                                <div className="flex items-center gap-1">
-                                                    <CopyButton
-                                                        text={message?.text}
-                                                    />
-                                                    <ChatTtsButton
-                                                        agentId={agentId}
-                                                        text={message?.text}
-                                                    />
+
+                                                {/* Hiển thị provider badge nếu có */}
+                                                {message?.content?.provider && (
+                                                    <Badge 
+                                                        variant="outline" 
+                                                        className="mt-2"
+                                                    >
+                                                        {message.content.provider.name}
+                                                    </Badge>
+                                                )}
+
+                                                {/* Hiển thị SWAP params */}
+                                                {message?.action === 'SWAP_TOKEN' && message.content && !message.content.error && (
+                                                    <div className="mt-2 p-2 bg-gray-800 rounded">
+                                                        <div className="font-medium text-xs text-muted-foreground mb-1">
+                                                            SWAP PARAMS
+                                                        </div>
+                                                        <div className="flex flex-col gap-1 text-sm">
+                                                            <div>From: {message.content.from_token}</div>
+                                                            <div>To: {message.content.destination_token}</div>
+                                                            <div>Amount: {message.content.amount}</div>
+                                                        </div>
+                                                    </div>
+                                                )}
+
+                                                {message?.attachments?.map((attachment) => (
+                                                    <div key={`${attachment.url}-${attachment.title}`} className="flex flex-col gap-1 mt-2">
+                                                        <img alt="attachment" src={attachment.url} className="w-64 rounded-md" />
+                                                    </div>
+                                                ))}
+                                            </ChatBubbleMessage>
+                                            <div className="flex items-center gap-4 justify-between w-full mt-1">
+                                                {message?.text && !message?.isLoading && (
+                                                    <div className="flex items-center gap-1">
+                                                        <CopyButton text={message?.text} />
+                                                        <ChatTtsButton agentId={agentId} text={message?.text} />
+                                                    </div>
+                                                )}
+                                                <div className="flex items-center justify-between gap-4 select-none">
+                                                    {message?.source && <Badge variant="outline">{message.source}</Badge>}
+                                                    {message?.action && <Badge variant="outline">{message.action}</Badge>}
+                                                    {message?.createdAt && (
+                                                        <ChatBubbleTimestamp timestamp={moment(message?.createdAt).format("LT")} />
+                                                    )}
                                                 </div>
-                                            ) : null}
-                                            <div
-                                                className={cn([
-                                                    message?.isLoading
-                                                        ? "mt-2"
-                                                        : "",
-                                                    "flex items-center justify-between gap-4 select-none",
-                                                ])}
-                                            >
-                                                {message?.source ? (
-                                                    <Badge variant="outline">
-                                                        {message.source}
-                                                    </Badge>
-                                                ) : null}
-                                                {message?.action ? (
-                                                    <Badge variant="outline">
-                                                        {message.action}
-                                                    </Badge>
-                                                ) : null}
-                                                {message?.createdAt ? (
-                                                    <ChatBubbleTimestamp
-                                                        timestamp={moment(
-                                                            message?.createdAt
-                                                        ).format("LT")}
-                                                    />
-                                                ) : null}
                                             </div>
                                         </div>
                                     </div>
@@ -301,7 +374,7 @@ export default function Page({ agentId }: { agentId: UUID }) {
                                 </Button>
                                 <img
                                     alt="Selected file"
-                                    src={URL.createObjectURL(selectedFile)}
+                                    src={selectedFile ? URL.createObjectURL(selectedFile) : ''}
                                     height="100%"
                                     width="100%"
                                     className="aspect-square object-contain w-16"

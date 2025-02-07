@@ -7,11 +7,13 @@ const fetcher = async ({
     method,
     body,
     headers,
+    transformResponse,
 }: {
     url: string;
     method?: "GET" | "POST";
     body?: object | FormData;
     headers?: HeadersInit;
+    transformResponse?: (response: any) => any;
 }) => {
     const options: RequestInit = {
         method: method ?? "GET",
@@ -59,7 +61,8 @@ const fetcher = async ({
             throw new Error(errorMessage);
         }
             
-        return resp.json();
+        const data = await resp.json();
+        return transformResponse ? transformResponse(data) : data;
     });
 };
 
@@ -80,6 +83,16 @@ export const apiClient = {
             url: `/${agentId}/message`,
             method: "POST",
             body: formData,
+            transformResponse: (response) => {
+                if (response.content?.provider) {
+                    return {
+                        ...response,
+                        text: response.content.provider.text,
+                        source: response.content.provider.name
+                    };
+                }
+                return response;
+            }
         });
     },
     getAgents: () => fetcher({ url: "/agents" }),

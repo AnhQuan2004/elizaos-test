@@ -280,47 +280,51 @@ const boredomProvider: Provider = {
         const now = Date.now(); // Current UTC timestamp
         const fifteenMinutesAgo = now - 15 * 60 * 1000; // 15 minutes ago in UTC
 
+        let boredomScore = 0;
+
+        // Get recent messages from last 15 minutes
         const recentMessages = await runtime.messageManager.getMemories({
             roomId: message.roomId,
             start: fifteenMinutesAgo,
             end: now,
             count: 20,
-            unique: false,
+            unique: false
         });
 
-        let boredomScore = 0;
-
+        // Process each message
         for (const recentMessage of recentMessages) {
             const messageText = recentMessage?.content?.text?.toLowerCase();
-            if (!messageText) {
-                continue;
-            }
+            if (!messageText) continue;
 
+            // User messages
             if (recentMessage.userId !== agentId) {
-                // if message text includes any of the interest words, subtract 1 from the boredom score
-                if (interestWords.some((word) => messageText.includes(word))) {
+                // Interest indicators (-1 to score)
+                if (interestWords.some(word => messageText.includes(word))) {
                     boredomScore -= 1;
                 }
-                if (messageText.includes("?")) {
-                    boredomScore -= 1;
+                if (messageText.includes('?')) {
+                    boredomScore -= 1; 
                 }
-                if (cringeWords.some((word) => messageText.includes(word))) {
+                // Cringe indicators (+1 to score)
+                if (cringeWords.some(word => messageText.includes(word))) {
                     boredomScore += 1;
                 }
-            } else {
-                if (interestWords.some((word) => messageText.includes(word))) {
+            }
+            // Agent messages 
+            else {
+                if (interestWords.some(word => messageText.includes(word))) {
                     boredomScore -= 1;
                 }
-                if (messageText.includes("?")) {
+                if (messageText.includes('?')) {
                     boredomScore += 1;
                 }
             }
 
-            if (messageText.includes("!")) {
+            // Universal modifiers
+            if (messageText.includes('!')) {
                 boredomScore += 1;
             }
-
-            if (negativeWords.some((word) => messageText.includes(word))) {
+            if (negativeWords.some(word => messageText.includes(word))) {
                 boredomScore += 1;
             }
         }
