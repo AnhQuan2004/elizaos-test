@@ -79,12 +79,15 @@ export const apiClient = {
         if (selectedFile) {
             formData.append("file", selectedFile);
         }
+        console.log('📤 Sending message to agent:', agentId);
         return fetcher({
-            url: `/${agentId}/message`,
+            url: `/${agentId}/message`, 
             method: "POST",
             body: formData,
             transformResponse: (response) => {
+                console.log('📥 Raw response:', response);
                 if (response.content?.provider) {
+                    console.log('🔄 Transforming provider response:', response.content.provider);
                     return {
                         ...response,
                         text: response.content.provider.text,

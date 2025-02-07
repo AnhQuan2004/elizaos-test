@@ -216,6 +216,14 @@ export default function Page({ agentId }: { agentId: UUID }) {
             console.log('📤 Sending message:', message);
             const response = await apiClient.sendMessage(agentId, message, selectedFile);
             console.log('📥 Received response:', response);
+            // Transform provider response
+            if (response.content?.provider) {
+                return {
+                    ...response,
+                    text: response.content.provider.text, // Use provider text as main message
+                    source: response.content.provider.name // Show provider name as source
+                };
+            }
             return response;
         },
         onSuccess: (newMessages: ContentWithUser[]) => {
@@ -227,6 +235,11 @@ export default function Page({ agentId }: { agentId: UUID }) {
                         ...old.filter((msg) => !msg.isLoading),
                         ...newMessages.map((msg) => ({
                             ...msg,
+                            // Preserve provider info for UI
+                            content: {
+                                ...msg.content,
+                                provider: msg.content?.provider
+                            },
                             createdAt: Date.now(),
                         })),
                     ];
@@ -290,9 +303,10 @@ export default function Page({ agentId }: { agentId: UUID }) {
                                             <ChatBubbleMessage isLoading={message?.isLoading}>
                                                 {message?.user !== "user" ? (
                                                     <>
-                                                        {message?.content?.provider?.force ? (
-                                                            <div className="provider-response">
-                                                                {message?.content?.provider?.text}
+                                                        {message?.content?.provider ? (
+                                                            // Show provider response with special styling
+                                                            <div className="provider-response whitespace-pre-wrap font-mono">
+                                                                {message.content.provider.text}
                                                             </div>
                                                         ) : (
                                                             <AIWriter>{message?.text}</AIWriter>
@@ -302,12 +316,9 @@ export default function Page({ agentId }: { agentId: UUID }) {
                                                     message?.text
                                                 )}
 
-                                                {/* Hiển thị provider badge nếu có */}
+                                                {/* Show provider badge if from provider */}
                                                 {message?.content?.provider && (
-                                                    <Badge 
-                                                        variant="outline" 
-                                                        className="mt-2"
-                                                    >
+                                                    <Badge variant="outline" className="mt-2">
                                                         {message.content.provider.name}
                                                     </Badge>
                                                 )}
